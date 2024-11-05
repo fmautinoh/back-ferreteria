@@ -1,27 +1,8 @@
 import express from 'express';
 import db from '../database/database.js';
-import bcrypt from 'bcryptjs';
 
 const router = express.Router();
 
-// Registrar un nuevo usuario
-router.post('/register', async (req, res) => {
-  const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
-  }
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const query = `INSERT INTO usuarios (username, password) VALUES (?, ?)`;
-  db.run(query, [username, hashedPassword], function(err) {
-    if (err) {
-      return res.status(400).json({ error: err.message });
-    }
-    res.status(201).json({ id: this.lastID });
-  });
-});
 
 // Iniciar sesión
 router.post('/login', async (req, res) => {

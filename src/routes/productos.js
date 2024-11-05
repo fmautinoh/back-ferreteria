@@ -44,7 +44,7 @@ router.post('/', (req, res) => {
   });
 });
 
-// Actualizar un producto
+// Actualizar un producto completamente
 router.put('/:id', (req, res) => {
   const { id } = req.params;
   const { nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock } = req.body;
@@ -62,6 +62,31 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ error: 'Producto no encontrado' });
     }
     res.json({ message: 'Producto actualizado' });
+  });
+});
+
+// Actualizar un producto parcialmente
+router.patch('/:id', (req, res) => {
+  const { id } = req.params;
+  const fields = req.body;
+  const keys = Object.keys(fields);
+  const values = Object.values(fields);
+
+  if (keys.length === 0) {
+    return res.status(400).json({ error: 'No se proporcionaron campos para actualizar' });
+  }
+
+  const setClause = keys.map(key => `${key} = ?`).join(', ');
+  const query = `UPDATE productos SET ${setClause} WHERE id = ?`;
+
+  db.run(query, [...values, id], function(err) {
+    if (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'Producto no encontrado' });
+    }
+    res.json({ message: 'Producto actualizado parcialmente' });
   });
 });
 

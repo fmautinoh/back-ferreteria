@@ -21,7 +21,11 @@ db.serialize(() => {
     precio_compra REAL,
     unidad TEXT,
     stock INTEGER
-  )`);
+  )`, (err) => {
+    if (err) {
+      console.error('Error creating productos table:', err.message);
+    }
+  });
 
   // Tabla de clientes
   db.run(`CREATE TABLE IF NOT EXISTS clientes (
@@ -33,7 +37,11 @@ db.serialize(() => {
     direccion TEXT,
     telefono TEXT,
     email TEXT
-  )`);
+  )`, (err) => {
+    if (err) {
+      console.error('Error creating clientes table:', err.message);
+    }
+  });
 
   // Tabla de ventas
   db.run(`CREATE TABLE IF NOT EXISTS ventas (
@@ -44,10 +52,14 @@ db.serialize(() => {
     total REAL,
     clienteId INTEGER,
     FOREIGN KEY (clienteId) REFERENCES clientes (id)
-  )`);
+  )`, (err) => {
+    if (err) {
+      console.error('Error creating ventas table:', err.message);
+    }
+  });
 
   // Tabla de detalle de ventas
-  db.run(`CREATE TABLE IF NOT EXISTS detalle_ventas (
+  db.run(`CREATE TABLE IF NOT EXISTS detalleVentas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ventaId INTEGER,
     productoId INTEGER,
@@ -56,14 +68,21 @@ db.serialize(() => {
     subtotal REAL,
     FOREIGN KEY (ventaId) REFERENCES ventas (id),
     FOREIGN KEY (productoId) REFERENCES productos (id)
-  )`);
+  )`, (err) => {
+    if (err) {
+      console.error('Error creating detalle_ventas table:', err.message);
+    }
+  });
 
   // Tabla de usuarios
   db.run(`CREATE TABLE IF NOT EXISTS usuarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     password TEXT
-  )`);
+  )`, (err) => {
+    if (err) {
+      console.error('Error creating usuarios table:', err.message);
+    }
+  });
 });
-
 export default db;
