@@ -7,9 +7,9 @@ const router = express.Router();
 router.get('/', (req, res) => {
   db.all(`SELECT * FROM productos`, (err, rows) => {
     if (err) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
-    res.json(rows);
+    res.status(200).json(rows); // OK
   });
 });
 
@@ -18,12 +18,12 @@ router.get('/:id', (req, res) => {
   const { id } = req.params;
   db.get(`SELECT * FROM productos WHERE id = ?`, [id], (err, row) => {
     if (err) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
     if (!row) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      return res.status(404).json({ error: 'Producto no encontrado' }); // Not Found
     }
-    res.json(row);
+    res.status(200).json(row); // OK
   });
 });
 
@@ -32,15 +32,16 @@ router.post('/', (req, res) => {
   const { nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock } = req.body;
 
   if (!nombre || !descripcion || precio_menor == null || precio_mayor == null || precio_compra == null || !unidad || stock == null) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    return res.status(400).json({ error: 'Todos los campos son obligatorios' }); // Bad Request
   }
 
   const query = `INSERT INTO productos (nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock) VALUES (?, ?, ?, ?, ?, ?, ?)`;
   db.run(query, [nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock], function(err) {
     if (err) {
-      return res.status(400).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
-    res.status(201).json({ id: this.lastID });
+    const newProductId = this.lastID;
+    res.status(201).json({ id: newProductId, nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock }); // Created
   });
 });
 
@@ -50,18 +51,18 @@ router.put('/:id', (req, res) => {
   const { nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock } = req.body;
 
   if (!nombre || !descripcion || precio_menor == null || precio_mayor == null || precio_compra == null || !unidad || stock == null) {
-    return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    return res.status(400).json({ error: 'Todos los campos son obligatorios' }); // Bad Request
   }
 
   const query = `UPDATE productos SET nombre = ?, descripcion = ?, precio_menor = ?, precio_mayor = ?, precio_compra = ?, unidad = ?, stock = ? WHERE id = ?`;
   db.run(query, [nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock, id], function(err) {
     if (err) {
-      return res.status(400).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
     if (this.changes === 0) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      return res.status(404).json({ error: 'Producto no encontrado' }); // Not Found
     }
-    res.json({ message: 'Producto actualizado' });
+    res.status(200).json({ message: 'Producto actualizado', producto: { id, nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock } }); // OK
   });
 });
 
@@ -73,7 +74,7 @@ router.patch('/:id', (req, res) => {
   const values = Object.values(fields);
 
   if (keys.length === 0) {
-    return res.status(400).json({ error: 'No se proporcionaron campos para actualizar' });
+    return res.status(400).json({ error: 'No se proporcionaron campos para actualizar' }); // Bad Request
   }
 
   const setClause = keys.map(key => `${key} = ?`).join(', ');
@@ -81,26 +82,36 @@ router.patch('/:id', (req, res) => {
 
   db.run(query, [...values, id], function(err) {
     if (err) {
-      return res.status(400).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
     if (this.changes === 0) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+      return res.status(404).json({ error: 'Producto no encontrado' }); // Not Found
     }
-    res.json({ message: 'Producto actualizado parcialmente' });
+    res.status(200).json({ message: 'Producto actualizado', producto: { id, ...fields } }); // OK
   });
 });
 
 // Eliminar un producto
 router.delete('/:id', (req, res) => {
   const { id } = req.params;
-  db.run(`DELETE FROM productos WHERE id = ?`, [id], function(err) {
+
+  // First, retrieve the product data before deletion
+  const selectQuery = `SELECT id, nombre, descripcion, precio_menor, precio_mayor, precio_compra, unidad, stock FROM productos WHERE id = ?`;
+  db.get(selectQuery, [id], (err, row) => {
     if (err) {
-      return res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message }); // Internal Server Error
     }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Producto no encontrado' });
+    if (!row) {
+      return res.status(404).json({ error: 'Producto no encontrado' }); // Not Found
     }
-    res.json({ message: 'Producto eliminado' });
+
+    // If the product exists, proceed to delete
+    db.run(`DELETE FROM productos WHERE id = ?`, [id], function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message }); // Internal Server Error
+      }
+      res.status(200).json({ message: 'Producto eliminado', producto: row }); // OK
+    });
   });
 });
 

@@ -3,20 +3,41 @@ import db from "../database/database.js";
 
 const router = express.Router();
 
+// Helper function to run queries with promises
+function runQuery(query, params = []) {
+  return new Promise((resolve, reject) => {
+    db.run(query, params, function (err) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(this);
+      }
+    });
+  });
+}
+
+function allQuery(query, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(query, params, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
+  });
+}
+
 // Obtener todas las ventas
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const query = `
     SELECT v.*, dv.productoId, dv.cantidad, dv.precio_unitario, dv.subtotal, p.nombre AS productoNombre
     FROM ventas v
     LEFT JOIN detalleVentas dv ON v.id = dv.ventaId
     LEFT JOIN productos p ON dv.productoId = p.id
   `;
-  db.all(query, (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-
-    // Group details by sale
+  try {
+    const rows = await allQuery(query);
     const sales = rows.reduce((acc, row) => {
       const {
         id,
@@ -51,13 +72,14 @@ router.get("/", (req, res) => {
       });
       return acc;
     }, {});
-
     res.json(Object.values(sales));
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Obtener una venta por ID
-router.get("/:id", (req, res) => {
+router.get("/:id", async (req, res) => {
   const { id } = req.params;
   const query = `
     SELECT v.*, dv.productoId, dv.cantidad, dv.precio_unitario, dv.subtotal, p.nombre AS productoNombre
@@ -66,32 +88,19 @@ router.get("/:id", (req, res) => {
     LEFT JOIN productos p ON dv.productoId = p.id
     WHERE v.id = ?
   `;
-  db.all(query, [id], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+  try {
+    const rows = await allQuery(query, [id]);
     if (rows.length === 0) {
       return res.status(404).json({ error: "Venta no encontrada" });
     }
-
-    const { fecha, tipo_documento, numero_documento, total, clienteId } =
-      rows[0];
-    const detalleVentas = rows.map(
-      ({
-        productoId,
-        productoNombre,
-        cantidad,
-        precio_unitario,
-        subtotal,
-      }) => ({
-        productoId,
-        productoNombre,
-        cantidad,
-        precio_unitario,
-        subtotal,
-      })
-    );
-
+    const { fecha, tipo_documento, numero_documento, total, clienteId } = rows[0];
+    const detalleVentas = rows.map(({ productoId, productoNombre, cantidad, precio_unitario, subtotal }) => ({
+      productoId,
+      productoNombre,
+      cantidad,
+      precio_unitario,
+      subtotal,
+    }));
     res.json({
       id,
       fecha,
@@ -101,338 +110,230 @@ router.get("/:id", (req, res) => {
       clienteId,
       detalleVentas,
     });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Agregar una nueva venta
-router.post("/", (req, res) => {
-  const {
-    fecha,
-    tipo_documento,
-    numero_documento,
-    total,
-    clienteId,
-    detalleVentas,
-  } = req.body;
+router.post("/", async (req, res) => {
+  const { tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
-  const insertVentaQuery = `
-    INSERT INTO ventas (fecha, tipo_documento, numero_documento, total, clienteId)
-    VALUES (?, ?, ?, ?, ?)
-  `;
+  const missingFields = [];
+  if (!tipo_documento) missingFields.push("tipo_documento");
+  if (!numero_documento) missingFields.push("numero_documento");
+  if (total == null) missingFields.push("total");
+  if (!clienteId) missingFields.push("clienteId");
+  if (!detalleVentas || !Array.isArray(detalleVentas) || detalleVentas.length === 0) {
+    missingFields.push("detalleVentas");
+  }
 
-  db.run(
-    insertVentaQuery,
-    [fecha, tipo_documento, numero_documento, total, clienteId],
-    function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
+  if (missingFields.length > 0) {
+    return res.status(400).json({ error: `Faltan los siguientes campos: ${missingFields.join(", ")}` });
+  }
 
-      const ventaId = this.lastID;
+  const fecha = new Date().toISOString().split('T')[0];
 
-      const insertDetalleQuery = `
-      INSERT INTO detalleVentas (ventaId, productoId, cantidad, precio_unitario, subtotal)
-      VALUES (?, ?, ?, ?, ?)
-    `;
+  try {
+    await runQuery("BEGIN TRANSACTION");
 
-      detalleVentas.forEach(
-        ({ productoId, cantidad, precio_unitario, subtotal }) => {
-          db.run(
-            insertDetalleQuery,
-            [ventaId, productoId, cantidad, precio_unitario, subtotal],
-            (err) => {
-              if (err) {
-                return res.status(500).json({ error: err.message });
-              }
+    const ventaResult = await runQuery(
+      `INSERT INTO ventas (fecha, tipo_documento, numero_documento, total, clienteId) VALUES (?, ?, ?, ?, ?)`,
+      [fecha, tipo_documento, numero_documento, total, clienteId]
+    );
 
-              // Update stock
-              const updateStockQuery = `
-          UPDATE productos
-          SET stock = stock - ?
-          WHERE id = ?
-        `;
-              db.run(updateStockQuery, [cantidad, productoId], (err) => {
-                if (err) {
-                  return res.status(500).json({ error: err.message });
-                }
-              });
-            }
-          );
-        }
-      );
+    const ventaId = ventaResult.lastID;
 
-      res.status(201).json({ id: ventaId });
+    const insertDetalleQuery = `INSERT INTO detalleVentas (ventaId, productoId, cantidad, precio_unitario, subtotal) VALUES (?, ?, ?, ?, ?)`;
+    const updateStockQuery = `UPDATE productos SET stock = stock - ? WHERE id = ?`;
+
+    for (const { productoId, cantidad, precio_unitario, subtotal } of detalleVentas) {
+      await runQuery(insertDetalleQuery, [ventaId, productoId, cantidad, precio_unitario, subtotal]);
+      await runQuery(updateStockQuery, [cantidad, productoId]);
     }
-  );
+
+    await runQuery("COMMIT");
+
+    // Devolver la venta creada con sus detalles
+    res.status(201).json({
+      id: ventaId,
+      fecha,
+      tipo_documento,
+      numero_documento,
+      total,
+      clienteId,
+      detalleVentas
+    });
+  } catch (err) {
+    await runQuery("ROLLBACK");
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Actualizar una venta
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   const { id } = req.params;
-  const {
-    fecha,
-    tipo_documento,
-    numero_documento,
-    total,
-    clienteId,
-    detalleVentas,
-  } = req.body;
+  const { fecha, tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
-  // Fetch current details to calculate stock difference
-  const fetchCurrentDetailsQuery = `
-    SELECT productoId, cantidad
-    FROM detalleVentas
-    WHERE ventaId = ?
-  `;
+  try {
+    await runQuery("BEGIN TRANSACTION");
 
-  db.all(fetchCurrentDetailsQuery, [id], (err, currentDetails) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    const fetchCurrentDetailsQuery = `SELECT productoId, cantidad FROM detalleVentas WHERE ventaId = ?`;
+    const currentDetails = await allQuery(fetchCurrentDetailsQuery, [id]);
 
-    // Update sale
     const updateVentaQuery = `
       UPDATE ventas
       SET fecha = ?, tipo_documento = ?, numero_documento = ?, total = ?, clienteId = ?
       WHERE id = ?
     `;
+    await runQuery(updateVentaQuery, [fecha, tipo_documento, numero_documento, total, clienteId, id]);
 
-    db.run(
-      updateVentaQuery,
-      [fecha, tipo_documento, numero_documento, total, clienteId, id],
-      (err) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
+    for (const { productoId, cantidad, precio_unitario, subtotal } of detalleVentas) {
+      const currentDetail = currentDetails.find(detail => detail.productoId === productoId);
+      const quantityDifference = cantidad - (currentDetail ? currentDetail.cantidad : 0);
 
-        // Update details and stock
-        detalleVentas.forEach(
-          ({ productoId, cantidad, precio_unitario, subtotal }) => {
-            const currentDetail = currentDetails.find(
-              (detail) => detail.productoId === productoId
-            );
-            const quantityDifference =
-              cantidad - (currentDetail ? currentDetail.cantidad : 0);
+      const updateDetalleQuery = `
+        UPDATE detalleVentas
+        SET cantidad = ?, precio_unitario = ?, subtotal = ?
+        WHERE ventaId = ? AND productoId = ?
+      `;
+      await runQuery(updateDetalleQuery, [cantidad, precio_unitario, subtotal, id, productoId]);
 
-            const updateDetalleQuery = `
-          UPDATE detalleVentas
-          SET cantidad = ?, precio_unitario = ?, subtotal = ?
-          WHERE ventaId = ? AND productoId = ?
-        `;
+      const updateStockQuery = `UPDATE productos SET stock = stock - ? WHERE id = ?`;
+      await runQuery(updateStockQuery, [quantityDifference, productoId]);
+    }
 
-            db.run(
-              updateDetalleQuery,
-              [cantidad, precio_unitario, subtotal, id, productoId],
-              (err) => {
-                if (err) {
-                  return res.status(500).json({ error: err.message });
-                }
+    await runQuery("COMMIT");
 
-                // Update stock
-                const updateStockQuery = `
-            UPDATE productos
-            SET stock = stock - ?
-            WHERE id = ?
-          `;
-                db.run(
-                  updateStockQuery,
-                  [quantityDifference, productoId],
-                  (err) => {
-                    if (err) {
-                      return res.status(500).json({ error: err.message });
-                    }
-                  }
-                );
-              }
-            );
-          }
-        );
-
-        res.json({ message: "Venta actualizada" });
-      }
-    );
-  });
+    // Devolver la venta actualizada con sus detalles
+    res.json({
+      id,
+      fecha,
+      tipo_documento,
+      numero_documento,
+      total,
+      clienteId,
+      detalleVentas
+    });
+  } catch (err) {
+    await runQuery("ROLLBACK");
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Eliminar una venta
-// Eliminar una venta y su detalle
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const { id } = req.params;
 
-  // Fetch the detalleVentas to update stock
-  const fetchDetalleQuery = `
-    SELECT productoId, cantidad
-    FROM detalleVentas
-    WHERE ventaId = ?
-  `;
+  try {
+    await runQuery("BEGIN TRANSACTION");
 
-  db.all(fetchDetalleQuery, [id], (err, detalles) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
+    const fetchDetalleQuery = `SELECT productoId, cantidad FROM detalleVentas WHERE ventaId = ?`;
+    const detalles = await allQuery(fetchDetalleQuery, [id]);
 
     if (detalles.length === 0) {
-      return res
-        .status(404)
-        .json({ error: "Venta no encontrada o sin detalles" });
+      return res.status(404).json({ error: "Venta no encontrada o sin detalles" });
     }
 
-    // Update stock for each product in detalleVentas
-    detalles.forEach(({ productoId, cantidad }) => {
-      const updateStockQuery = `
-        UPDATE productos
-        SET stock = stock + ?
-        WHERE id = ?
-      `;
-      db.run(updateStockQuery, [cantidad, productoId], (err) => {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
-      });
-    });
+    for (const { productoId, cantidad } of detalles) {
+      const updateStockQuery = `UPDATE productos SET stock = stock + ? WHERE id = ?`;
+      await runQuery(updateStockQuery, [cantidad, productoId]);
+    }
 
-    // Delete detalleVentas
     const deleteDetalleQuery = `DELETE FROM detalleVentas WHERE ventaId = ?`;
-    db.run(deleteDetalleQuery, [id], function (err) {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
+    await runQuery(deleteDetalleQuery, [id]);
 
-      // Delete the venta
-      const deleteVentaQuery = `DELETE FROM ventas WHERE id = ?`;
-      db.run(deleteVentaQuery, [id], function (err) {
-        if (err) {
-          return res.status(500).json({ error: err.message });
-        }
+    const deleteVentaQuery = `DELETE FROM ventas WHERE id = ?`;
+    const result = await runQuery(deleteVentaQuery, [id]);
 
-        if (this.changes === 0) {
-          return res.status(404).json({ error: "Venta no encontrada" });
-        }
+    if (result.changes === 0) {
+      return res.status(404).json({ error: "Venta no encontrada" });
+    }
 
-        res.json({ message: "Venta y detalle eliminados correctamente" });
-      });
-    });
-  });
+    await runQuery("COMMIT");
+
+    // Devolver un mensaje de confirmación
+    res.json({ message: "Venta y detalle eliminados correctamente" });
+  } catch (err) {
+    await runQuery("ROLLBACK");
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Actualizar parcialmente una venta
-router.patch("/:id", (req, res) => {
+router.patch("/:id", async (req, res) => {
   const { id } = req.params;
-  const {
-    fecha,
-    tipo_documento,
-    numero_documento,
-    total,
-    clienteId,
-    detalleVentas,
-  } = req.body;
+  const { fecha, tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
-  let fields = [];
-  let values = [];
+  try {
+    await runQuery("BEGIN TRANSACTION");
 
-  if (fecha) {
-    fields.push("fecha = ?");
-    values.push(fecha);
-  }
-  if (tipo_documento) {
-    fields.push("tipo_documento = ?");
-    values.push(tipo_documento);
-  }
-  if (numero_documento) {
-    fields.push("numero_documento = ?");
-    values.push(numero_documento);
-  }
-  if (total != null) {
-    fields.push("total = ?");
-    values.push(total);
-  }
-  if (clienteId) {
-    fields.push("clienteId = ?");
-    values.push(clienteId);
-  }
+    let fields = [];
+    let values = [];
 
-  if (fields.length === 0 && !detalleVentas) {
-    return res.status(400).json({ error: "No hay campos para actualizar" });
-  }
+    if (fecha) {
+      fields.push("fecha = ?");
+      values.push(fecha);
+    }
+    if (tipo_documento) {
+      fields.push("tipo_documento = ?");
+      values.push(tipo_documento);
+    }
+    if (numero_documento) {
+      fields.push("numero_documento = ?");
+      values.push(numero_documento);
+    }
+    if (total != null) {
+      fields.push("total = ?");
+      values.push(total);
+    }
+    if (clienteId) {
+      fields.push("clienteId = ?");
+      values.push(clienteId);
+    }
 
-  if (fields.length > 0) {
-    const query = `UPDATE ventas SET ${fields.join(", ")} WHERE id = ?`;
-    values.push(id);
+    if (fields.length > 0) {
+      const query = `UPDATE ventas SET ${fields.join(", ")} WHERE id = ?`;
+      values.push(id);
+      await runQuery(query, values);
+    }
 
-    db.run(query, values, function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: "Venta no encontrada" });
-      }
-    });
-  }
+    if (detalleVentas && detalleVentas.length > 0) {
+      const fetchCurrentDetailsQuery = `SELECT productoId, cantidad FROM detalleVentas WHERE ventaId = ?`;
+      const currentDetails = await allQuery(fetchCurrentDetailsQuery, [id]);
 
-  if (detalleVentas && detalleVentas.length > 0) {
-    // Fetch current details to calculate stock difference
-    const fetchCurrentDetailsQuery = `
-      SELECT productoId, cantidad
-      FROM detalleVentas
-      WHERE ventaId = ?
-    `;
-
-    db.all(fetchCurrentDetailsQuery, [id], (err, currentDetails) => {
-      if (err) {
-        return res.status(500).json({ error: err.message });
-      }
-
-      // Delete existing details
       const deleteDetalleQuery = `DELETE FROM detalleVentas WHERE ventaId = ?`;
-      db.run(deleteDetalleQuery, [id], function (err) {
-        if (err) {
-          return res.status(400).json({ error: err.message });
-        }
+      await runQuery(deleteDetalleQuery, [id]);
 
-        const detalleQuery = `INSERT INTO detalleVentas (ventaId, productoId, cantidad, precio_unitario, subtotal) VALUES (?, ?, ?, ?, ?)`;
-        const detalleStmt = db.prepare(detalleQuery);
+      const insertDetalleQuery = `INSERT INTO detalleVentas (ventaId, productoId, cantidad, precio_unitario, subtotal) VALUES (?, ?, ?, ?, ?)`;
 
-        detalleVentas.forEach(
-          ({ productoId, cantidad, precio_unitario, subtotal }) => {
-            // Find the current detail for this product
-            const currentDetail = currentDetails.find(
-              (detail) => detail.productoId === productoId
-            );
-            const quantityDifference =
-              cantidad - (currentDetail ? currentDetail.cantidad : 0);
+      for (const { productoId, cantidad, precio_unitario, subtotal } of detalleVentas) {
+        const currentDetail = currentDetails.find(detail => detail.productoId === productoId);
+        const quantityDifference = cantidad - (currentDetail ? currentDetail.cantidad : 0);
 
-            // Update stock
-            const updateStockQuery = `
-            UPDATE productos
-            SET stock = stock - ?
-            WHERE id = ?
-          `;
-            db.run(
-              updateStockQuery,
-              [quantityDifference, productoId],
-              (err) => {
-                if (err) {
-                  return res.status(500).json({ error: err.message });
-                }
-              }
-            );
+        const updateStockQuery = `UPDATE productos SET stock = stock - ? WHERE id = ?`;
+        await runQuery(updateStockQuery, [quantityDifference, productoId]);
 
-            // Insert new detail
-            detalleStmt.run(
-              id,
-              productoId,
-              cantidad,
-              precio_unitario,
-              subtotal
-            );
-          }
-        );
+        await runQuery(insertDetalleQuery, [id, productoId, cantidad, precio_unitario, subtotal]);
+      }
+    }
 
-        detalleStmt.finalize();
-      });
+    await runQuery("COMMIT");
+
+    // Devolver la venta actualizada parcialmente
+    res.json({
+      id,
+      fecha,
+      tipo_documento,
+      numero_documento,
+      total,
+      clienteId,
+      detalleVentas
     });
+  } catch (err) {
+    await runQuery("ROLLBACK");
+    res.status(500).json({ error: err.message });
   }
-
-  res.json({ message: "Venta actualizada parcialmente" });
 });
+
 export default router;

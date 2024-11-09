@@ -36,16 +36,15 @@ router.post("/", (req, res) => {
   }
 
   const query = `INSERT INTO clientes (nombre, apellido, ruc, dni, direccion, telefono, email) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-  db.run(
-    query,
-    [nombre, apellido, ruc, dni, direccion, telefono, email],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-      res.status(201).json({ id: this.lastID });
+  db.run(query, [nombre, apellido, ruc, dni, direccion, telefono, email], function (err) {
+    if (err) {
+      return res.status(400).json({ error: err.message });
     }
-  );
+    res.status(201).json({
+      message: "Cliente creado",
+      cliente: { id: this.lastID, nombre, apellido, ruc, dni, direccion, telefono, email }
+    });
+  });
 });
 
 // Actualizar un cliente
@@ -57,35 +56,45 @@ router.put("/:id", (req, res) => {
     return res.status(400).json({ error: "Todos los campos son obligatorios" });
   }
 
-  const query = `UPDATE clientes SET nombre = ?, apellido = ?, ruc = ?, dni = ?, direccion = ?, telefono = ?, email = ? WHERE id = ?`;
-  db.run(
-    query,
-    [nombre, apellido, ruc, dni, direccion, telefono, email, id],
-    function (err) {
-      if (err) {
-        return res.status(400).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: "Cliente no encontrado" });
-      }
-      res.json({ message: "Cliente actualizado" });
+  const updateQuery = `UPDATE clientes SET nombre = ?, apellido = ?, ruc = ?, dni = ?, direccion = ?, telefono = ?, email = ? WHERE id = ?`;
+  db.run(updateQuery, [nombre, apellido, ruc, dni, direccion, telefono, email, id], function (err) {
+    if (err) {
+      return res.status(400).json({ error: err.message });
     }
-  );
+    if (this.changes === 0) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+    res.json({
+      message: "Cliente actualizado",
+      cliente: { id, nombre, apellido, ruc, dni, direccion, telefono, email }
+    });
+  });
 });
 
 // Eliminar un cliente
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
-  db.run(`DELETE FROM clientes WHERE id = ?`, [id], function (err) {
+
+  // First, retrieve the client data before deletion
+  const selectQuery = `SELECT id, nombre, apellido, ruc, dni, direccion, telefono, email FROM clientes WHERE id = ?`;
+  db.get(selectQuery, [id], (err, row) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
-    if (this.changes === 0) {
+    if (!row) {
       return res.status(404).json({ error: "Cliente no encontrado" });
     }
-    res.json({ message: "Cliente eliminado" });
+
+    // If the client exists, proceed to delete
+    db.run(`DELETE FROM clientes WHERE id = ?`, [id], function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ message: "Cliente eliminado", cliente: row });
+    });
   });
 });
+
 // Actualizar parcialmente un cliente
 router.patch("/:id", (req, res) => {
   const { id } = req.params;
@@ -138,7 +147,11 @@ router.patch("/:id", (req, res) => {
     if (this.changes === 0) {
       return res.status(404).json({ error: "Cliente no encontrado" });
     }
-    res.json({ message: "Cliente actualizado parcialmente" });
+    res.json({
+      message: "Cliente actualizado parcialmente",
+      cliente: { id, nombre, apellido, ruc, dni, direccion, telefono, email }
+    });
   });
 });
+
 export default router;
