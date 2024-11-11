@@ -1,20 +1,16 @@
-import express from "express";
+// clientesController.js
 import db from "../database/database.js";
 
-const router = express.Router();
-
-// Obtener todos los clientes
-router.get("/", (req, res) => {
+export const getAllClientes = (req, res) => {
   db.all(`SELECT * FROM clientes`, (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
     res.json(rows);
   });
-});
+};
 
-// Obtener un cliente por ID
-router.get("/:id", (req, res) => {
+export const getClienteById = (req, res) => {
   const { id } = req.params;
   db.get(`SELECT * FROM clientes WHERE id = ?`, [id], (err, row) => {
     if (err) {
@@ -25,12 +21,10 @@ router.get("/:id", (req, res) => {
     }
     res.json(row);
   });
-});
+};
 
-// Agregar un nuevo cliente
-router.post("/", (req, res) => {
+export const addCliente = (req, res) => {
   const { nombre, apellido, ruc, dni, direccion, telefono, email } = req.body;
-
   if (!nombre || !apellido || !ruc || !direccion) {
     return res.status(400).json({ error: "Todos los campos son obligatorios" });
   }
@@ -45,10 +39,9 @@ router.post("/", (req, res) => {
       cliente: { id: this.lastID, nombre, apellido, ruc, dni, direccion, telefono, email }
     });
   });
-});
+};
 
-// Actualizar un cliente
-router.put("/:id", (req, res) => {
+export const updateCliente = (req, res) => {
   const { id } = req.params;
   const { nombre, apellido, ruc, dni, direccion, telefono, email } = req.body;
 
@@ -69,13 +62,11 @@ router.put("/:id", (req, res) => {
       cliente: { id, nombre, apellido, ruc, dni, direccion, telefono, email }
     });
   });
-});
+};
 
-// Eliminar un cliente
-router.delete("/:id", (req, res) => {
+export const deleteCliente = (req, res) => {
   const { id } = req.params;
 
-  // First, retrieve the client data before deletion
   const selectQuery = `SELECT id, nombre, apellido, ruc, dni, direccion, telefono, email FROM clientes WHERE id = ?`;
   db.get(selectQuery, [id], (err, row) => {
     if (err) {
@@ -85,7 +76,6 @@ router.delete("/:id", (req, res) => {
       return res.status(404).json({ error: "Cliente no encontrado" });
     }
 
-    // If the client exists, proceed to delete
     db.run(`DELETE FROM clientes WHERE id = ?`, [id], function (err) {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -93,14 +83,12 @@ router.delete("/:id", (req, res) => {
       res.json({ message: "Cliente eliminado", cliente: row });
     });
   });
-});
+};
 
-// Actualizar parcialmente un cliente
-router.patch("/:id", (req, res) => {
+export const patchCliente = (req, res) => {
   const { id } = req.params;
   const { nombre, apellido, ruc, dni, direccion, telefono, email } = req.body;
 
-  // Construir la consulta SQL dinámicamente
   let fields = [];
   let values = [];
 
@@ -152,6 +140,4 @@ router.patch("/:id", (req, res) => {
       cliente: { id, nombre, apellido, ruc, dni, direccion, telefono, email }
     });
   });
-});
-
-export default router;
+};

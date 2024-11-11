@@ -1,7 +1,4 @@
-import express from "express";
 import db from "../database/database.js";
-
-const router = express.Router();
 
 // Helper function to run queries with promises
 function runQuery(query, params = []) {
@@ -28,8 +25,7 @@ function allQuery(query, params = []) {
   });
 }
 
-// Obtener todas las ventas
-router.get("/", async (req, res) => {
+export const getAllSales = async (req, res) => {
   const query = `
     SELECT v.*, dv.productoId, dv.cantidad, dv.precio_unitario, dv.subtotal, p.nombre AS productoNombre
     FROM ventas v
@@ -76,10 +72,9 @@ router.get("/", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Obtener una venta por ID
-router.get("/:id", async (req, res) => {
+export const getSaleById = async (req, res) => {
   const { id } = req.params;
   const query = `
     SELECT v.*, dv.productoId, dv.cantidad, dv.precio_unitario, dv.subtotal, p.nombre AS productoNombre
@@ -113,10 +108,9 @@ router.get("/:id", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Agregar una nueva venta
-router.post("/", async (req, res) => {
+export const addSale = async (req, res) => {
   const { tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
   const missingFields = [];
@@ -154,7 +148,6 @@ router.post("/", async (req, res) => {
 
     await runQuery("COMMIT");
 
-    // Devolver la venta creada con sus detalles
     res.status(201).json({
       id: ventaId,
       fecha,
@@ -168,10 +161,9 @@ router.post("/", async (req, res) => {
     await runQuery("ROLLBACK");
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Actualizar una venta
-router.put("/:id", async (req, res) => {
+export const updateSale = async (req, res) => {
   const { id } = req.params;
   const { fecha, tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
@@ -205,7 +197,6 @@ router.put("/:id", async (req, res) => {
 
     await runQuery("COMMIT");
 
-    // Devolver la venta actualizada con sus detalles
     res.json({
       id,
       fecha,
@@ -219,10 +210,9 @@ router.put("/:id", async (req, res) => {
     await runQuery("ROLLBACK");
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Eliminar una venta
-router.delete("/:id", async (req, res) => {
+export const deleteSale = async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -252,16 +242,14 @@ router.delete("/:id", async (req, res) => {
 
     await runQuery("COMMIT");
 
-    // Devolver un mensaje de confirmación
     res.json({ message: "Venta y detalle eliminados correctamente" });
   } catch (err) {
     await runQuery("ROLLBACK");
     res.status(500).json({ error: err.message });
   }
-});
+};
 
-// Actualizar parcialmente una venta
-router.patch("/:id", async (req, res) => {
+export const patchSale = async (req, res) => {
   const { id } = req.params;
   const { fecha, tipo_documento, numero_documento, total, clienteId, detalleVentas } = req.body;
 
@@ -320,7 +308,6 @@ router.patch("/:id", async (req, res) => {
 
     await runQuery("COMMIT");
 
-    // Devolver la venta actualizada parcialmente
     res.json({
       id,
       fecha,
@@ -334,6 +321,4 @@ router.patch("/:id", async (req, res) => {
     await runQuery("ROLLBACK");
     res.status(500).json({ error: err.message });
   }
-});
-
-export default router;
+};
