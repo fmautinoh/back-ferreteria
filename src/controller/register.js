@@ -1,5 +1,5 @@
 // controllers/userController.js
-const bcrypt = require('bcrypt');
+import bcrypt from "bcryptjs";
 import db from "../database/database.js";
 
 export const registerUser = async (req, res) => {
